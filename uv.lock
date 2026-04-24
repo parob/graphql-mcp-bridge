@@ -541,7 +541,8 @@ wheels = [
 
 [[package]]
 name = "graphql-mcp"
-source = { editable = "../graphql-mcp" }
+version = "2.1.1"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiohttp" },
     { name = "fastmcp" },
@@ -549,32 +550,9 @@ dependencies = [
     { name = "graphql-core" },
     { name = "graphql-http" },
 ]
-
-[package.metadata]
-requires-dist = [
-    { name = "aiohttp" },
-    { name = "fastmcp", specifier = ">=3.0,<4" },
-    { name = "graphql-api", specifier = ">=1.6.7" },
-    { name = "graphql-core" },
-    { name = "graphql-http", specifier = ">=2.3.1" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "ariadne" },
-    { name = "autoflake", specifier = ">=2.3.1" },
-    { name = "autopep8", specifier = ">=2.3.2" },
-    { name = "coverage" },
-    { name = "docstring-parser" },
-    { name = "faker" },
-    { name = "flake8" },
-    { name = "flake8-pyproject" },
-    { name = "graphene" },
-    { name = "pyright" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-cov" },
-    { name = "strawberry-graphql" },
+sdist = { url = "https://files.pythonhosted.org/packages/0d/9e/bf8dc226ab2f7a71e25c88c7639402eaeffcee9d6a01b15fe61f8b18e893/graphql_mcp-2.1.1.tar.gz", hash = "sha256:4a3463fddaec70736ee0bfb88a5881e9afb93c2735a901885c7c57d59990d906", size = 517293 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b5/76/98357553b98ed9454a74771c0f45fda8aa31db3bd53a2da51d8657b310fe/graphql_mcp-2.1.1-py3-none-any.whl", hash = "sha256:e006cf8f3eac4f9d32b392b405f3cfdc209cae1b5f2f7e33607e9df12cd8d491", size = 50667 },
 ]
 
 [[package]]
@@ -599,7 +577,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "cachetools", specifier = ">=5.3" },
-    { name = "graphql-mcp", editable = "../graphql-mcp" },
+    { name = "graphql-mcp", specifier = ">=2.1.1" },
     { name = "starlette", specifier = ">=0.37" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
 ]

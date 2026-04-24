@@ -19,18 +19,11 @@ limiting on top.
 
 ```bash
 uv sync
-# macOS quirk: uv can mark the path-source .pth file as hidden, which
-# Python's site loader then skips. Unhide it once after each sync:
-chflags nohidden .venv/lib/python*/site-packages/__editable__.graphql_mcp-*.pth 2>/dev/null || true
-
 BRIDGE_ALLOW_INTERNAL_HOSTS=true uv run uvicorn bridge.app:app --reload
 ```
 
 Then point an MCP client at
 `http://localhost:8000/mcp/https%3A%2F%2Fcountries.trevorblades.com%2Fgraphql`.
-
-> The local-dev `[tool.uv.sources]` entry for `graphql-mcp` should be removed
-> once the library's next point release (>= 2.1.1) lands on PyPI.
 
 ## Configuration
 

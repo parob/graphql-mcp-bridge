@@ -31,11 +31,6 @@ dev = [
 [tool.uv]
 package = true
 
-# NOTE: remove this path override once graphql-mcp >= 2.1.1 is on PyPI.
-# Docker builds must not rely on it — the Dockerfile pins a real version.
-[tool.uv.sources]
-graphql-mcp = { path = "../graphql-mcp", editable = true }
-
 [build-system]
 requires = ["setuptools>=64", "setuptools-scm"]
 build-backend = "setuptools.build_meta"
