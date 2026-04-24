@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 from typing import Awaitable, Callable
-from urllib.parse import unquote
 
 from starlette.applications import Starlette
 from starlette.requests import Request
@@ -14,6 +13,7 @@ from starlette.types import Receive, Scope, Send
 
 from bridge.cache import normalize_upstream_url
 from bridge.config import Settings, load_settings
+from bridge.encoding import decode_upstream
 from bridge.proxy import Proxy
 from bridge.rate_limit import TokenBucketLimiter
 from bridge.ssrf import UpstreamValidationError, validate_upstream_url
@@ -37,7 +37,8 @@ def create_app(settings: Settings | None = None) -> Starlette:
         return JSONResponse({
             "service": "graphql-mcp-bridge",
             "docs": "https://graphql-mcp.com/bridge",
-            "usage": "/mcp/<url-encoded GraphQL endpoint>",
+            "usage": "/mcp/<upstream GraphQL URL>",
+            "upstream_encodings": ["percent-encoded", "base64url"],
         })
 
     async def health(_request: Request) -> Response:
@@ -51,13 +52,13 @@ def create_app(settings: Settings | None = None) -> Starlette:
             return await PlainTextResponse(
                 "rate limit exceeded", status_code=429)(scope, receive, send)
 
-        upstream_encoded = scope.get("path_params", {}).get("upstream", "")
-        if not upstream_encoded:
+        upstream_raw = scope.get("path_params", {}).get("upstream", "")
+        if not upstream_raw:
             return await JSONResponse(
                 {"error": "missing upstream URL in path"},
                 status_code=400)(scope, receive, send)
 
-        upstream = unquote(upstream_encoded)
+        upstream = decode_upstream(upstream_raw)
         try:
             upstream = validate_upstream_url(
                 upstream,

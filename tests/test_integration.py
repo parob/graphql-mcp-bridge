@@ -1,5 +1,6 @@
 """End-to-end: Bridge in front of a real GraphQL upstream, hit via MCP client."""
 
+import base64
 import socket
 import threading
 import time
@@ -62,6 +63,17 @@ async def test_bridge_exposes_upstream_tools(upstream_graphql, bridge_server):
 
         result = await client.call_tool("hello", {"name": "Bridge"})
         assert _result_text(result) == "Hello, Bridge!"
+
+
+@pytest.mark.asyncio
+async def test_bridge_accepts_base64url_upstream(upstream_graphql, bridge_server):
+    b64 = base64.urlsafe_b64encode(upstream_graphql.encode()).decode().rstrip("=")
+    mcp_url = f"{bridge_server}/mcp/{b64}"
+    async with Client(mcp_url) as client:
+        tools = await client.list_tools()
+        assert "hello" in {t.name for t in tools}
+        result = await client.call_tool("hello", {"name": "base64"})
+    assert _result_text(result) == "Hello, base64!"
 
 
 @pytest.mark.asyncio
