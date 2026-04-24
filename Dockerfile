@@ -1,11 +1,10 @@
-# syntax=docker/dockerfile:1.6
 ARG PYTHON_VERSION=3.13-alpine
 
 FROM python:${PYTHON_VERSION} AS builder
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 
-RUN --mount=type=cache,target=/var/cache/apk apk add \
+RUN apk add --no-cache \
     build-base \
     gcc \
     musl-dev \
@@ -14,11 +13,10 @@ RUN --mount=type=cache,target=/var/cache/apk apk add \
 
 WORKDIR /app
 
-COPY pyproject.toml VERSION ./
+COPY pyproject.toml uv.lock VERSION ./
 COPY bridge ./bridge
 
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv venv && \
+RUN uv venv && \
     uv pip install -r <(uv export --no-dev --no-emit-project)
 
 RUN uv build && \
