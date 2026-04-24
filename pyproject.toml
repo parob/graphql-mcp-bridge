@@ -1,0 +1,59 @@
+[project]
+name = "graphql-mcp-bridge"
+dynamic = ["version"]
+description = "Hosted MCP proxy for any public GraphQL API."
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.12,<3.14"
+authors = [
+    {name = "Robert Parker", email = "rob@parob.com"}
+]
+dependencies = [
+    "graphql-mcp>=2.1.1",
+    "starlette>=0.37",
+    "uvicorn[standard]>=0.30",
+    "cachetools>=5.3",
+]
+
+[project.urls]
+Homepage = "https://bridge.graphql-mcp.com"
+Repository = "https://github.com/parob/graphql-mcp-bridge"
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "httpx",
+    "flake8",
+    "flake8-pyproject",
+]
+
+[tool.uv]
+package = true
+
+# NOTE: remove this path override once graphql-mcp >= 2.1.1 is on PyPI.
+# Docker builds must not rely on it — the Dockerfile pins a real version.
+[tool.uv.sources]
+graphql-mcp = { path = "../graphql-mcp", editable = true }
+
+[build-system]
+requires = ["setuptools>=64", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["bridge*"]
+
+[tool.setuptools.dynamic]
+version = {file = "VERSION"}
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.flake8]
+max-line-length = 170
+ignore = ["E203", "W503", "W504", "E402"]
