@@ -68,6 +68,10 @@ class InstanceCache(Generic[T]):
     def invalidate(self, key: str) -> bool:
         return self._cache.pop(key, None) is not None
 
+    def peek(self, key: str) -> T | None:
+        """Return the cached value without building — for hit/miss logging."""
+        return self._cache.get(key)
+
     def clear(self) -> None:
         self._cache.clear()
 
