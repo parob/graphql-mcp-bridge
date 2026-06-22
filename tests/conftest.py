@@ -31,6 +31,11 @@ def _build_demo_schema() -> GraphQLSchema:
         http_headers = info.context.get("http_headers", {}) if info.context else {}
         return http_headers.get("authorization", "")
 
+    def resolve_convert(_root, _info, **kwargs):
+        # `from` is a Python keyword, so graphql-core delivers it via **kwargs.
+        # Echo it back to prove the bridge sent the real GraphQL arg name.
+        return f"{kwargs.get('from')}->{kwargs.get('to')}"
+
     return GraphQLSchema(
         query=GraphQLObjectType(
             "Query",
@@ -43,6 +48,16 @@ def _build_demo_schema() -> GraphQLSchema:
                 "whoami": GraphQLField(
                     GraphQLNonNull(GraphQLString),
                     resolve=resolve_whoami,
+                ),
+                # Field with a Python reserved keyword (`from`) as an argument
+                # name — exercises graphql-mcp issue #5 through the bridge.
+                "convert": GraphQLField(
+                    GraphQLNonNull(GraphQLString),
+                    args={
+                        "from": GraphQLArgument(GraphQLNonNull(GraphQLString)),
+                        "to": GraphQLArgument(GraphQLNonNull(GraphQLString)),
+                    },
+                    resolve=resolve_convert,
                 ),
             },
         )
