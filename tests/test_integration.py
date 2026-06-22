@@ -66,6 +66,27 @@ async def test_bridge_exposes_upstream_tools(upstream_graphql, bridge_server):
 
 
 @pytest.mark.asyncio
+async def test_bridge_handles_reserved_keyword_argument(
+        upstream_graphql, bridge_server):
+    """Regression for graphql-mcp issue #5: an upstream field whose argument is
+    a Python reserved keyword (`from`) must be exposed (as `from_`) and callable
+    through the bridge, round-tripping back to the real GraphQL name."""
+    mcp_url = f"{bridge_server}/mcp/{quote(upstream_graphql, safe='')}"
+    async with Client(mcp_url) as client:
+        tools = await client.list_tools()
+        convert = next(t for t in tools if t.name == "convert")
+        # The reserved keyword is surfaced to MCP clients with a trailing _.
+        params = set(convert.inputSchema.get("properties", {}))
+        assert "from_" in params
+        assert "from" not in params
+
+        result = await client.call_tool(
+            "convert", {"from_": "UNIPROT", "to": "PDB_ENTITY"})
+    # Upstream received the real `from` arg and echoed it back.
+    assert _result_text(result) == "UNIPROT->PDB_ENTITY"
+
+
+@pytest.mark.asyncio
 async def test_bridge_accepts_base64url_upstream(upstream_graphql, bridge_server):
     b64 = base64.urlsafe_b64encode(upstream_graphql.encode()).decode().rstrip("=")
     mcp_url = f"{bridge_server}/mcp/{b64}"
