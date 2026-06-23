@@ -8,6 +8,7 @@ from contextlib import closing
 from typing import cast
 from urllib.parse import quote
 
+import httpx
 import pytest
 import uvicorn
 from fastmcp.client import Client
@@ -84,6 +85,43 @@ async def test_bridge_handles_reserved_keyword_argument(
             "convert", {"from_": "UNIPROT", "to": "PDB_ENTITY"})
     # Upstream received the real `from` arg and echoed it back.
     assert _result_text(result) == "UNIPROT->PDB_ENTITY"
+
+
+@pytest.mark.asyncio
+async def test_bridge_serves_graphiql_explorer(upstream_graphql, bridge_server):
+    """The Bridge serves graphql-mcp's GraphiQL + MCP plugin at /graphql,
+    proxies GraphQL to the upstream, and redirects browser visits of the bare
+    URL to it — without disturbing the MCP endpoint."""
+    tok = quote(upstream_graphql, safe="")
+    async with httpx.AsyncClient(base_url=bridge_server, timeout=30) as c:
+        # A browser hitting the bare MCP URL is redirected to the explorer.
+        r = await c.get(f"/mcp/{tok}", headers={"Accept": "text/html"})
+        assert r.status_code == 307
+        assert r.headers["location"].endswith("/graphql")
+
+        # The explorer renders the GraphiQL page (with the MCP plugin).
+        r = await c.get(f"/mcp/{tok}/graphql", headers={"Accept": "text/html"})
+        assert r.status_code == 200
+        assert "graphiql" in r.text.lower()
+
+        # GraphQL queries posted to the explorer are proxied to the upstream.
+        r = await c.post(f"/mcp/{tok}/graphql", json={"query": "{ hello }"})
+        assert r.status_code == 200
+        assert r.json()["data"]["hello"] == "Hello, World!"
+
+
+@pytest.mark.asyncio
+async def test_bridge_mcp_still_served_via_plugin_path(
+        upstream_graphql, bridge_server):
+    """The MCP endpoint the GraphiQL plugin derives (<explorer>/mcp) reaches
+    the same MCP server as the bare URL."""
+    tok = quote(upstream_graphql, safe="")
+    mcp_url = f"{bridge_server}/mcp/{tok}/graphql/mcp"
+    async with Client(mcp_url) as client:
+        tools = {t.name for t in await client.list_tools()}
+        assert "hello" in tools
+        result = await client.call_tool("hello", {"name": "Plugin"})
+        assert _result_text(result) == "Hello, Plugin!"
 
 
 @pytest.mark.asyncio

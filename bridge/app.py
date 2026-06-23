@@ -2,12 +2,20 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import time
 from typing import Awaitable, Callable
+from urllib.parse import unquote, urlparse
 
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import JSONResponse, PlainTextResponse, Response
+from starlette.responses import (
+    JSONResponse,
+    PlainTextResponse,
+    RedirectResponse,
+    Response,
+)
 from starlette.routing import Route
 from starlette.types import Receive, Scope, Send
 
@@ -28,6 +36,30 @@ def _client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
+def _wants_html(request: Request) -> bool:
+    """A browser visiting the bare MCP URL (GET asking for HTML)."""
+    return request.method == "GET" and "text/html" in request.headers.get(
+        "accept", "")
+
+
+def _access_log(
+    request: Request, upstream: str, kind: str, status: int,
+    started: float, cache_hit: bool,
+) -> None:
+    """Emit one structured line per proxied request so usage is queryable
+    (e.g. in Cloud Logging): which upstreams, how often, latency, hit/miss."""
+    logger.info(json.dumps({
+        "event": "bridge_request",
+        "upstream": urlparse(upstream).hostname or upstream,
+        "kind": kind,
+        "method": request.method,
+        "status": status,
+        "duration_ms": round((time.monotonic() - started) * 1000, 1),
+        "cache": "hit" if cache_hit else "miss",
+        "client_ip": _client_ip(request),
+    }))
+
+
 def create_app(settings: Settings | None = None) -> Starlette:
     settings = settings or load_settings()
     proxy = Proxy(settings)
@@ -38,6 +70,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
             "service": "graphql-mcp-bridge",
             "docs": "https://graphql-mcp.com/bridge",
             "usage": "/mcp/<upstream GraphQL URL>",
+            "explorer": "/mcp/<upstream GraphQL URL>/graphql",
             "upstream_encodings": ["percent-encoded", "base64url"],
         })
 
@@ -47,16 +80,42 @@ def create_app(settings: Settings | None = None) -> Starlette:
     async def mcp_endpoint(scope: Scope, receive: Receive, send: Send) -> None:
         # Raw ASGI handler so we can cleanly delegate to the per-upstream sub-app.
         request = Request(scope, receive)
+        started = time.monotonic()
 
         if not await limiter.acquire(_client_ip(request)):
             return await PlainTextResponse(
                 "rate limit exceeded", status_code=429)(scope, receive, send)
 
-        upstream_raw = scope.get("path_params", {}).get("upstream", "")
-        if not upstream_raw:
+        # Split the upstream token from any explorer sub-path using the *raw*
+        # (undecoded) path. Both supported encodings — base64url and
+        # percent-encoding — escape the upstream URL's own slashes, so a
+        # literal "/" in the raw path only ever separates the token from the
+        # sub-path. Routing on the decoded path would be ambiguous because
+        # "%2F" decodes back into slashes.
+        raw_path = (scope.get("raw_path")
+                    or scope.get("path", "").encode()).decode("latin-1")
+        raw_path = raw_path.split("?", 1)[0]
+        after = raw_path[len("/mcp/"):] if raw_path.startswith("/mcp/") else ""
+        token, _, rest = after.partition("/")
+        rest = rest.strip("/")
+        if not token:
             return await JSONResponse(
                 {"error": "missing upstream URL in path"},
                 status_code=400)(scope, receive, send)
+        upstream_raw = unquote(token)
+
+        # Browser hitting the bare MCP URL → send it to the GraphiQL explorer
+        # (the raw MCP endpoint only speaks JSON-RPC over POST). "rest" is
+        # empty for the bare URL, "graphql" for the explorer, and "<...>/mcp"
+        # for the MCP endpoint the GraphiQL plugin derives.
+        if rest == "" and _wants_html(request):
+            target = raw_path.rstrip("/") + "/graphql"
+            return await RedirectResponse(
+                target, status_code=307)(scope, receive, send)
+
+        is_mcp = rest == "" or rest == "mcp" or rest.endswith("/mcp")
+        kind = "mcp" if is_mcp else "graphql"
+        internal_path = "/mcp" if is_mcp else "/graphql"
 
         upstream = decode_upstream(upstream_raw)
         try:
@@ -70,23 +129,35 @@ def create_app(settings: Settings | None = None) -> Starlette:
                 {"error": f"invalid upstream: {e}"},
                 status_code=400)(scope, receive, send)
 
+        cache_hit = proxy.cache.peek(normalize_upstream_url(upstream)) is not None
         try:
             built = await proxy.get(upstream)
         except Exception as e:
             logger.warning(
                 "bridge: failed to build instance for %s: %s", upstream, e)
+            _access_log(request, upstream, kind, 502, started, cache_hit)
             return await JSONResponse(
                 {"error": f"failed to introspect upstream: {e}"},
                 status_code=502)(scope, receive, send)
 
-        # Rewrite the scope so the sub-app (rooted at "/") sees a clean path.
+        # Rewrite the scope so the sub-app sees a clean, normalized path.
         sub_scope = dict(scope)
-        sub_scope["path"] = "/"
-        sub_scope["raw_path"] = b"/"
+        sub_scope["path"] = internal_path
+        sub_scope["raw_path"] = internal_path.encode()
         sub_scope["root_path"] = scope.get(
             "root_path", "") + scope.get("path", "")
 
-        await built.sub_app(sub_scope, receive, send)
+        # Capture the response status for the access log.
+        status_seen = {"status": 0}
+
+        async def _logging_send(message) -> None:
+            if message["type"] == "http.response.start":
+                status_seen["status"] = message["status"]
+            await send(message)
+
+        await built.sub_app(sub_scope, receive, _logging_send)
+        _access_log(
+            request, upstream, kind, status_seen["status"], started, cache_hit)
 
     async def invalidate(request: Request) -> Response:
         secret = settings.admin_secret

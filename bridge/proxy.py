@@ -55,17 +55,22 @@ class Proxy:
             upstream_url,
             headers={"User-Agent": self.settings.user_agent},
             timeout=self.settings.upstream_timeout_seconds,
-            graphql_http=False,
+            graphql_http=True,
             allow_mutations=True,
             forward_headers=_normalize_forward_headers(
                 self.settings.forward_headers),
         )
-        # Build the streamable-http sub-app rooted at "/" so the Bridge
-        # outer route can strip the upstream prefix and dispatch directly.
+        # Build the sub-app with both the MCP endpoint (at "/mcp") and the
+        # GraphiQL explorer + GraphQL proxy (graphql_http=True, served at any
+        # non-"/mcp" path). The outer Bridge route normalizes the incoming
+        # path to "/mcp" for MCP traffic or "/graphql" for the explorer before
+        # dispatching here. graphql-mcp's remote_client (set by
+        # build_remote_mcp) lets the GraphQL proxy forward queries upstream.
         sub_app = instance.http_app(
             transport="streamable-http",
             stateless_http=True,
-            path="/",
+            path="/mcp",
+            graphql_http=True,
         )
         exit_stack = AsyncExitStack()
         lifespan = sub_app.router.lifespan_context
