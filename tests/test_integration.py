@@ -90,14 +90,17 @@ async def test_bridge_handles_reserved_keyword_argument(
 @pytest.mark.asyncio
 async def test_bridge_serves_graphiql_explorer(upstream_graphql, bridge_server):
     """The Bridge serves graphql-mcp's GraphiQL + MCP plugin at /graphql,
-    proxies GraphQL to the upstream, and redirects browser visits of the bare
-    URL to it — without disturbing the MCP endpoint."""
+    proxies GraphQL to the upstream, and shows a browser visiting the bare URL
+    an explainer that forwards to it — without disturbing the MCP endpoint."""
     tok = quote(upstream_graphql, safe="")
     async with httpx.AsyncClient(base_url=bridge_server, timeout=30) as c:
-        # A browser hitting the bare MCP URL is redirected to the explorer.
+        # A browser hitting the bare MCP URL gets the explainer interstitial,
+        # which forwards to the explorer via meta-refresh + script.
         r = await c.get(f"/mcp/{tok}", headers={"Accept": "text/html"})
-        assert r.status_code == 307
-        assert r.headers["location"].endswith("/graphql")
+        assert r.status_code == 200
+        assert "text/html" in r.headers["content-type"]
+        assert f"/mcp/{tok}/graphql" in r.text
+        assert "http-equiv" in r.text  # <meta refresh> no-JS fallback
 
         # The explorer renders the GraphiQL page (with the MCP plugin).
         r = await c.get(f"/mcp/{tok}/graphql", headers={"Accept": "text/html"})
