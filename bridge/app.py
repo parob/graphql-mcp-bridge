@@ -15,6 +15,7 @@ from starlette.responses import (
     HTMLResponse,
     JSONResponse,
     PlainTextResponse,
+    RedirectResponse,
     Response,
 )
 from starlette.routing import Route
@@ -32,6 +33,10 @@ logger = logging.getLogger(__name__)
 # How long the browser interstitial explains itself before sending the visitor
 # on to the GraphiQL explorer.
 EXPLORER_REDIRECT_DELAY_SECONDS = 10
+
+# Human-facing docs for the Bridge. Browsers hitting the bare host are sent here;
+# the JSON service-info response links the same URL.
+DOCS_URL = "https://graphql-mcp.com/bridge"
 
 
 def _client_ip(request: Request) -> str:
@@ -154,10 +159,14 @@ def create_app(settings: Settings | None = None) -> Starlette:
     proxy = Proxy(settings)
     limiter = TokenBucketLimiter(settings.rate_limit)
 
-    async def root(_request: Request) -> Response:
+    async def root(request: Request) -> Response:
+        # A browser landing on the bare host gets the docs; API/programmatic
+        # clients (no text/html) keep the JSON service-info response.
+        if _wants_html(request):
+            return RedirectResponse(DOCS_URL, status_code=307)
         return JSONResponse({
             "service": "graphql-mcp-bridge",
-            "docs": "https://graphql-mcp.com/bridge",
+            "docs": DOCS_URL,
             "usage": "/mcp/<upstream GraphQL URL>",
             "explorer": "/mcp/<upstream GraphQL URL>/graphql",
             "upstream_encodings": ["percent-encoded", "base64url"],

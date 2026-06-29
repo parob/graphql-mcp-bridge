@@ -88,6 +88,22 @@ async def test_bridge_handles_reserved_keyword_argument(
 
 
 @pytest.mark.asyncio
+async def test_root_redirects_browser_to_docs(bridge_server):
+    """The bare host redirects browsers to the docs page, but still serves the
+    JSON service-info response to API/programmatic clients."""
+    async with httpx.AsyncClient(base_url=bridge_server, timeout=30) as c:
+        # Browser (Accept: text/html) → redirect to the docs.
+        r = await c.get("/", headers={"Accept": "text/html"})
+        assert r.status_code == 307
+        assert r.headers["location"] == "https://graphql-mcp.com/bridge"
+
+        # API client (no text/html) → JSON, linking the same docs URL.
+        r = await c.get("/")
+        assert r.status_code == 200
+        assert r.json()["docs"] == "https://graphql-mcp.com/bridge"
+
+
+@pytest.mark.asyncio
 async def test_bridge_serves_graphiql_explorer(upstream_graphql, bridge_server):
     """The Bridge serves graphql-mcp's GraphiQL + MCP plugin at /graphql,
     proxies GraphQL to the upstream, and shows a browser visiting the bare URL
