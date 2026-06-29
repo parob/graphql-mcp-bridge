@@ -30,10 +30,6 @@ from bridge.ssrf import UpstreamValidationError, validate_upstream_url
 
 logger = logging.getLogger(__name__)
 
-# How long the browser interstitial explains itself before sending the visitor
-# on to the GraphiQL explorer.
-EXPLORER_REDIRECT_DELAY_SECONDS = 10
-
 # Human-facing docs for the Bridge, linked from the landing page and the JSON
 # service-info response. This is the canonical GitHub Pages docs domain —
 # graphql-mcp.com is only a frameset wrapper and can't serve sub-paths.
@@ -58,14 +54,11 @@ def _wants_html(request: Request) -> bool:
         "accept", "")
 
 
-def _explorer_interstitial(
-    target: str, mcp_url: str, host: str, delay: int,
-) -> HTMLResponse:
-    """A short explainer shown to a human who opened the bare MCP URL in a
-    browser. It says what this endpoint is, then forwards to the GraphiQL
-    explorer after ``delay`` seconds. ``<meta refresh>`` is the no-JS fallback;
-    the inline script drives the visible countdown and a history-replacing
-    redirect so the interstitial doesn't linger in the back button.
+def _explorer_page(target: str, mcp_url: str, host: str) -> HTMLResponse:
+    """A page shown to a human who opened a bare MCP URL in a browser. MCP
+    endpoints only speak JSON-RPC over POST, so instead of a confusing error we
+    explain what this is and offer a button to the GraphiQL explorer. No
+    auto-redirect — the visitor clicks through when they're ready.
 
     ``target``/``mcp_url``/``host`` are derived from the user-controlled path,
     so every interpolation is HTML-escaped.
@@ -78,8 +71,7 @@ def _explorer_interstitial(
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="refresh" content="{delay}; url={t}">
-<title>Opening GraphQL explorer…</title>
+<title>MCP endpoint — {h}</title>
 <style>
   :root {{ color-scheme: light dark; }}
   body {{
@@ -94,7 +86,6 @@ def _explorer_interstitial(
   h1 {{ margin: 0 0 .75rem; font-size: 1.4rem; }}
   p {{ margin: .6rem 0; color: #aab2bd; }}
   strong {{ color: #e6edf3; }}
-  .count {{ font-variant-numeric: tabular-nums; color: #e6edf3; }}
   .go {{
     display: inline-block; margin-top: 1.25rem; padding: .6rem 1.1rem;
     background: #238636; color: #fff; text-decoration: none; border-radius: 8px;
@@ -112,31 +103,18 @@ def _explorer_interstitial(
 </head>
 <body>
   <main class="card">
-    <h1>Opening the GraphQL explorer…</h1>
+    <h1>This is an MCP endpoint</h1>
     <p>You've opened a live <strong>MCP (Model Context Protocol)</strong>
        endpoint for <strong>{h}</strong>. MCP endpoints speak JSON-RPC and are
        meant for AI agents, not browsers.</p>
-    <p>Taking you to the <strong>GraphiQL explorer</strong> in
-       <span class="count" id="count">{delay}</span> seconds, where you can browse
-       the schema and run queries.</p>
-    <a class="go" id="go" href="{t}">Open the explorer now →</a>
+    <p>To browse the schema and run queries in your browser, open the
+       <strong>GraphiQL explorer</strong>:</p>
+    <a class="go" href="{t}">Open the GraphQL explorer →</a>
     <div class="mcp">
       <span>MCP endpoint (paste this into your AI client):</span>
       <code>{mcp}</code>
     </div>
   </main>
-  <script>
-    (function () {{
-      var target = {json.dumps(target)};
-      var n = {delay};
-      var el = document.getElementById("count");
-      var tick = setInterval(function () {{
-        n -= 1;
-        if (el) el.textContent = n < 0 ? 0 : n;
-        if (n <= 0) {{ clearInterval(tick); window.location.replace(target); }}
-      }}, 1000);
-    }})();
-  </script>
 </body>
 </html>"""
     return HTMLResponse(body)
@@ -208,10 +186,10 @@ def create_app(settings: Settings | None = None) -> Starlette:
                 status_code=400)(scope, receive, send)
         upstream_raw = unquote(token)
 
-        # Browser hitting the bare MCP URL → show a short explainer, then send
-        # it to the GraphiQL explorer (the raw MCP endpoint only speaks JSON-RPC
-        # over POST). "rest" is empty for the bare URL, "graphql" for the
-        # explorer, and "<...>/mcp" for the MCP endpoint the GraphiQL plugin
+        # Browser hitting the bare MCP URL → explain what it is and offer a
+        # button to the GraphiQL explorer (the raw MCP endpoint only speaks
+        # JSON-RPC over POST). "rest" is empty for the bare URL, "graphql" for
+        # the explorer, and "<...>/mcp" for the MCP endpoint the GraphiQL plugin
         # derives.
         if rest == "" and _wants_html(request):
             bare = raw_path.rstrip("/")
@@ -219,11 +197,10 @@ def create_app(settings: Settings | None = None) -> Starlette:
                 host = urlparse(decode_upstream(upstream_raw)).hostname or ""
             except Exception:
                 host = ""
-            return await _explorer_interstitial(
+            return await _explorer_page(
                 target=bare + "/graphql",
                 mcp_url=bare + "/mcp",
                 host=host,
-                delay=EXPLORER_REDIRECT_DELAY_SECONDS,
             )(scope, receive, send)
 
         is_mcp = rest == "" or rest == "mcp" or rest.endswith("/mcp")
