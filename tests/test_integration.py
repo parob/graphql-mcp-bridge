@@ -95,12 +95,12 @@ async def test_root_redirects_browser_to_docs(bridge_server):
         # Browser (Accept: text/html) → redirect to the docs.
         r = await c.get("/", headers={"Accept": "text/html"})
         assert r.status_code == 307
-        assert r.headers["location"] == "https://graphql-mcp.com/bridge"
+        assert r.headers["location"] == "https://graphql-mcp.parob.com/bridge"
 
         # API client (no text/html) → JSON, linking the same docs URL.
         r = await c.get("/")
         assert r.status_code == 200
-        assert r.json()["docs"] == "https://graphql-mcp.com/bridge"
+        assert r.json()["docs"] == "https://graphql-mcp.parob.com/bridge"
 
 
 @pytest.mark.asyncio

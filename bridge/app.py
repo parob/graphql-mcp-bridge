@@ -35,8 +35,10 @@ logger = logging.getLogger(__name__)
 EXPLORER_REDIRECT_DELAY_SECONDS = 10
 
 # Human-facing docs for the Bridge. Browsers hitting the bare host are sent here;
-# the JSON service-info response links the same URL.
-DOCS_URL = "https://graphql-mcp.com/bridge"
+# the JSON service-info response links the same URL. This is the canonical
+# GitHub Pages docs domain — graphql-mcp.com is only a frameset wrapper and
+# can't serve sub-paths like /bridge.
+DOCS_URL = "https://graphql-mcp.parob.com/bridge"
 
 
 def _client_ip(request: Request) -> str:
