@@ -88,16 +88,19 @@ async def test_bridge_handles_reserved_keyword_argument(
 
 
 @pytest.mark.asyncio
-async def test_root_redirects_browser_to_docs(bridge_server):
-    """The bare host redirects browsers to the docs page, but still serves the
-    JSON service-info response to API/programmatic clients."""
+async def test_root_serves_landing_to_browser(bridge_server):
+    """The bare host serves the explainer + URL-mapper landing page to browsers,
+    but still serves the JSON service-info response to API/programmatic clients."""
     async with httpx.AsyncClient(base_url=bridge_server, timeout=30) as c:
-        # Browser (Accept: text/html) → redirect to the docs.
+        # Browser (Accept: text/html) → the landing page with the URL mapper.
         r = await c.get("/", headers={"Accept": "text/html"})
-        assert r.status_code == 307
-        assert r.headers["location"] == "https://graphql-mcp.parob.com/bridge"
+        assert r.status_code == 200
+        assert "text/html" in r.headers["content-type"]
+        assert "GraphQL MCP Bridge" in r.text
+        assert "toBase64Url" in r.text  # the URL mapper logic is present
+        assert 'id="upstream"' in r.text and 'id="output"' in r.text
 
-        # API client (no text/html) → JSON, linking the same docs URL.
+        # API client (no text/html) → JSON, linking the docs URL.
         r = await c.get("/")
         assert r.status_code == 200
         assert r.json()["docs"] == "https://graphql-mcp.parob.com/bridge"

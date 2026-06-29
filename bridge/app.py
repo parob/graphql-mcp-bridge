@@ -15,7 +15,6 @@ from starlette.responses import (
     HTMLResponse,
     JSONResponse,
     PlainTextResponse,
-    RedirectResponse,
     Response,
 )
 from starlette.routing import Route
@@ -24,6 +23,7 @@ from starlette.types import Receive, Scope, Send
 from bridge.cache import normalize_upstream_url
 from bridge.config import Settings, load_settings
 from bridge.encoding import decode_upstream
+from bridge.landing import landing_html
 from bridge.proxy import Proxy
 from bridge.rate_limit import TokenBucketLimiter
 from bridge.ssrf import UpstreamValidationError, validate_upstream_url
@@ -34,11 +34,15 @@ logger = logging.getLogger(__name__)
 # on to the GraphiQL explorer.
 EXPLORER_REDIRECT_DELAY_SECONDS = 10
 
-# Human-facing docs for the Bridge. Browsers hitting the bare host are sent here;
-# the JSON service-info response links the same URL. This is the canonical
-# GitHub Pages docs domain — graphql-mcp.com is only a frameset wrapper and
-# can't serve sub-paths like /bridge.
+# Human-facing docs for the Bridge, linked from the landing page and the JSON
+# service-info response. This is the canonical GitHub Pages docs domain —
+# graphql-mcp.com is only a frameset wrapper and can't serve sub-paths.
 DOCS_URL = "https://graphql-mcp.parob.com/bridge"
+REPO_URL = "https://github.com/parob/graphql-mcp-bridge"
+
+# The landing page is static (the MCP base is derived client-side), so render
+# it once at import rather than per request.
+LANDING_HTML = landing_html(DOCS_URL, REPO_URL)
 
 
 def _client_ip(request: Request) -> str:
@@ -162,10 +166,10 @@ def create_app(settings: Settings | None = None) -> Starlette:
     limiter = TokenBucketLimiter(settings.rate_limit)
 
     async def root(request: Request) -> Response:
-        # A browser landing on the bare host gets the docs; API/programmatic
-        # clients (no text/html) keep the JSON service-info response.
+        # A browser landing on the bare host gets the explainer + URL mapper;
+        # API/programmatic clients (no text/html) keep the JSON service-info.
         if _wants_html(request):
-            return RedirectResponse(DOCS_URL, status_code=307)
+            return HTMLResponse(LANDING_HTML)
         return JSONResponse({
             "service": "graphql-mcp-bridge",
             "docs": DOCS_URL,
