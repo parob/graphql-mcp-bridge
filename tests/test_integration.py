@@ -119,6 +119,8 @@ async def test_bridge_serves_graphiql_explorer(upstream_graphql, bridge_server):
         assert r.status_code == 200
         assert "text/html" in r.headers["content-type"]
         assert f"/mcp/{tok}/graphql" in r.text  # button links to the explorer
+        # The suggested MCP endpoint is the full absolute URL, not a path.
+        assert f"{bridge_server}/mcp/{tok}" in r.text
         assert "http-equiv" not in r.text  # no meta-refresh auto-redirect
 
         # The explorer renders the GraphiQL page (with the MCP plugin).

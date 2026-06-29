@@ -193,14 +193,22 @@ def create_app(settings: Settings | None = None) -> Starlette:
         # derives.
         if rest == "" and _wants_html(request):
             bare = raw_path.rstrip("/")
+            # Absolute origin for the copy-paste MCP URL, honoring the proxy
+            # headers Cloud Run / the load balancer set in front of us.
+            proto = (request.headers.get("x-forwarded-proto", "").split(",")[0]
+                     .strip() or request.url.scheme)
+            netloc = (request.headers.get("x-forwarded-host")
+                      or request.headers.get("host") or request.url.netloc)
+            origin = f"{proto}://{netloc}" if netloc else ""
             try:
-                host = urlparse(decode_upstream(upstream_raw)).hostname or ""
+                upstream_host = urlparse(
+                    decode_upstream(upstream_raw)).hostname or ""
             except Exception:
-                host = ""
+                upstream_host = ""
             return await _explorer_page(
                 target=bare + "/graphql",
-                mcp_url=bare + "/mcp",
-                host=host,
+                mcp_url=origin + bare,
+                host=upstream_host,
             )(scope, receive, send)
 
         is_mcp = rest == "" or rest == "mcp" or rest.endswith("/mcp")
