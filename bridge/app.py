@@ -54,6 +54,46 @@ def _wants_html(request: Request) -> bool:
         "accept", "")
 
 
+def _request_origin(request: Request) -> str:
+    """The absolute ``scheme://host`` a visitor reached us on, honoring the
+    proxy headers Cloud Run / the load balancer set in front of us."""
+    proto = (request.headers.get("x-forwarded-proto", "").split(",")[0]
+             .strip() or request.url.scheme)
+    netloc = (request.headers.get("x-forwarded-host")
+              or request.headers.get("host") or request.url.netloc)
+    return f"{proto}://{netloc}" if netloc else ""
+
+
+def _is_plain_html(headers: list) -> bool:
+    """True for an uncompressed HTML response — the only shape we can safely
+    rewrite. Anything encoded (gzip/br) or non-HTML streams through untouched.
+    """
+    ctype = enc = b""
+    for key, value in headers:
+        lowered = key.lower()
+        if lowered == b"content-type":
+            ctype = value
+        elif lowered == b"content-encoding":
+            enc = value
+    return b"text/html" in ctype.lower() and not enc
+
+
+def _mcp_url_script(mcp_url: str) -> bytes:
+    """A <script> declaring the canonical MCP endpoint for the GraphiQL page.
+
+    graphql-mcp's MCP plugin (>= 2.1.4) reads ``window.__GRAPHQL_MCP_URL__``
+    and, when set, targets it instead of guessing "<current path>/mcp" — which
+    is wrong here, because we serve the explorer one level below the endpoint.
+
+    ``mcp_url`` is built from request headers, so the JSON string is additionally
+    escaped for the ``<script>`` context (a literal ``<`` could otherwise end
+    the element early).
+    """
+    literal = (json.dumps(mcp_url).replace("<", "\\u003c")
+               .replace(">", "\\u003e").replace("&", "\\u0026"))
+    return f"<script>window.__GRAPHQL_MCP_URL__={literal};</script>".encode()
+
+
 def _explorer_page(target: str, mcp_url: str, host: str) -> HTMLResponse:
     """A page shown to a human who opened a bare MCP URL in a browser. MCP
     endpoints only speak JSON-RPC over POST, so instead of a confusing error we
@@ -193,13 +233,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
         # derives.
         if rest == "" and _wants_html(request):
             bare = raw_path.rstrip("/")
-            # Absolute origin for the copy-paste MCP URL, honoring the proxy
-            # headers Cloud Run / the load balancer set in front of us.
-            proto = (request.headers.get("x-forwarded-proto", "").split(",")[0]
-                     .strip() or request.url.scheme)
-            netloc = (request.headers.get("x-forwarded-host")
-                      or request.headers.get("host") or request.url.netloc)
-            origin = f"{proto}://{netloc}" if netloc else ""
+            origin = _request_origin(request)
             try:
                 upstream_host = urlparse(
                     decode_upstream(upstream_raw)).hostname or ""
@@ -245,17 +279,52 @@ def create_app(settings: Settings | None = None) -> Starlette:
         sub_scope["root_path"] = scope.get(
             "root_path", "") + scope.get("path", "")
 
-        # Capture the response status for the access log.
-        status_seen = {"status": 0}
+        # The explorer lives at /mcp/<token>/graphql but the MCP endpoint it
+        # should talk to is /mcp/<token>, so tell the plugin outright rather
+        # than letting it derive the wrong path from the URL it was served on.
+        inject = None
+        if kind == "graphql":
+            inject = _mcp_url_script(
+                _request_origin(request) + "/mcp/" + token)
 
-        async def _logging_send(message) -> None:
+        # Wrap send to record the response status for the access log and, for
+        # the explorer HTML only, splice the injection in before </head>.
+        st = {"status": 0, "buffer": False, "headers": [], "body": bytearray()}
+
+        async def _send(message) -> None:
             if message["type"] == "http.response.start":
-                status_seen["status"] = message["status"]
+                st["status"] = message["status"]
+                if inject and _is_plain_html(message.get("headers", [])):
+                    # Hold the headers back: content-length changes once the
+                    # body has grown by the injected script.
+                    st["buffer"] = True
+                    st["headers"] = list(message.get("headers", []))
+                    return
+                await send(message)
+                return
+
+            if st["buffer"] and message["type"] == "http.response.body":
+                st["body"] += message.get("body", b"")
+                if message.get("more_body"):
+                    return
+                body = bytes(st["body"])
+                if b"</head>" in body:
+                    body = body.replace(b"</head>", inject + b"</head>", 1)
+                else:
+                    body = inject + body
+                headers = [(k, v) for (k, v) in st["headers"]
+                           if k.lower() != b"content-length"]
+                headers.append((b"content-length", str(len(body)).encode()))
+                await send({"type": "http.response.start",
+                            "status": st["status"], "headers": headers})
+                await send({"type": "http.response.body", "body": body})
+                return
+
             await send(message)
 
-        await built.sub_app(sub_scope, receive, _logging_send)
+        await built.sub_app(sub_scope, receive, _send)
         _access_log(
-            request, upstream, kind, status_seen["status"], started, cache_hit)
+            request, upstream, kind, st["status"], started, cache_hit)
 
     async def invalidate(request: Request) -> Response:
         secret = settings.admin_secret

@@ -123,15 +123,22 @@ async def test_bridge_serves_graphiql_explorer(upstream_graphql, bridge_server):
         assert f"{bridge_server}/mcp/{tok}" in r.text
         assert "http-equiv" not in r.text  # no meta-refresh auto-redirect
 
-        # The explorer renders the GraphiQL page (with the MCP plugin).
+        # The explorer renders the GraphiQL page (with the MCP plugin), and
+        # declares the canonical MCP endpoint so the plugin targets it instead
+        # of guessing "<explorer path>/mcp".
         r = await c.get(f"/mcp/{tok}/graphql", headers={"Accept": "text/html"})
         assert r.status_code == 200
         assert "graphiql" in r.text.lower()
+        assert (f'window.__GRAPHQL_MCP_URL__="{bridge_server}/mcp/{tok}";'
+                in r.text)  # the bare token, no /graphql or /mcp suffix
+        assert int(r.headers["content-length"]) == len(r.content)
 
-        # GraphQL queries posted to the explorer are proxied to the upstream.
+        # GraphQL queries posted to the explorer are proxied to the upstream,
+        # and the JSON response is passed through without any injection.
         r = await c.post(f"/mcp/{tok}/graphql", json={"query": "{ hello }"})
         assert r.status_code == 200
         assert r.json()["data"]["hello"] == "Hello, World!"
+        assert "__GRAPHQL_MCP_URL__" not in r.text
 
 
 @pytest.mark.asyncio
