@@ -30,13 +30,17 @@ def decode_upstream(raw: str) -> str:
     if not raw:
         return raw
 
-    url_decoded = unquote(raw)
+    # Surrounding whitespace is never part of a URL, but `echo url | base64`
+    # (no -n) bakes a trailing newline into the token — seen in real traffic.
+    url_decoded = unquote(raw).strip()
     if _looks_like_http_url(url_decoded):
         return url_decoded
 
     b64_decoded = _try_base64url(raw)
-    if b64_decoded is not None and _looks_like_http_url(b64_decoded):
-        return b64_decoded
+    if b64_decoded is not None:
+        b64_decoded = b64_decoded.strip()
+        if _looks_like_http_url(b64_decoded):
+            return b64_decoded
 
     # Neither encoding produced something that looks right — hand the
     # percent-decoded value back; the SSRF/scheme check will reject it.

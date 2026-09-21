@@ -37,4 +37,4 @@ ENV DEPLOY_TIME=$DEPLOY_TIME
 EXPOSE 8080
 ENV PORT=8080
 
-CMD ["sh", "-c", "uvicorn bridge.app:app --host 0.0.0.0 --port ${PORT:-8080} --timeout-keep-alive 120 --loop uvloop"]
+CMD ["sh", "-c", "uvicorn bridge.app:app --host 0.0.0.0 --port ${PORT:-8080} --timeout-keep-alive 120 --loop uvloop --no-access-log"]

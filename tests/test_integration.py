@@ -210,3 +210,30 @@ async def test_bridge_rejects_private_upstream(bridge_server):
     finally:
         server.should_exit = True
         thread.join(timeout=5)
+
+
+@pytest.mark.asyncio
+async def test_introspection_uses_callers_credentials(
+    upstream_graphql_auth, bridge_server,
+):
+    """An upstream that requires auth even for introspection works when the
+    caller sends the credentials the bridge forwards; without them the
+    bridge reports the upstream's refusal instead of a shared instance."""
+    mcp_url = f"{bridge_server}/mcp/{quote(upstream_graphql_auth, safe='')}"
+
+    async with Client(mcp_url, auth="secret-token") as client:
+        tools = {t.name for t in await client.list_tools()}
+        assert "whoami" in tools
+        result = await client.call_tool("whoami", {})
+    assert _result_text(result) == "Bearer secret-token"
+
+    # The instance built above must not be handed to an unauthenticated
+    # caller: the cache is keyed per credential set.
+    async with httpx.AsyncClient() as http:
+        resp = await http.post(
+            mcp_url,
+            json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+            headers={"Accept": "application/json, text/event-stream"},
+        )
+    assert resp.status_code == 502
+    assert "401" in resp.json()["error"]
