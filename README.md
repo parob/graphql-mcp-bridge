@@ -38,7 +38,7 @@ All settings are read from env vars at process start:
 | `BRIDGE_UPSTREAM_TIMEOUT_SECONDS`    | `30`                                              | Request timeout to the upstream                            |
 | `BRIDGE_MAX_UPSTREAM_URL_LENGTH`     | `2048`                                            | Reject upstream URLs longer than this                      |
 | `BRIDGE_RATE_LIMIT`                  | `60/minute`                                       | Per-IP token bucket (e.g. `10/second`, `1000/hour`)        |
-| `BRIDGE_FORWARD_HEADERS`             | `authorization,x-api-key,cookie`                  | Comma-separated header allowlist, or `*` for all safe headers |
+| `BRIDGE_FORWARD_HEADERS`             | common credential headers (see `bridge/config.py`) | Comma-separated header allowlist, or `*` for all safe headers. Forwarded headers also key the cache, so `*` gives every distinct client header set its own entry |
 | `BRIDGE_ADMIN_SECRET`                | *(unset)*                                         | If set, enables `POST /admin/invalidate` (drops every cached instance of the given `url`) |
 | `BRIDGE_USER_AGENT`                  | `graphql-mcp-bridge/0.1 (+...)`                   | User-Agent sent to the upstream                            |
 

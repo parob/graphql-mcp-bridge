@@ -24,6 +24,24 @@ def _env_str_tuple(name: str, default: Tuple[str, ...]) -> Tuple[str, ...]:
     return tuple(part.strip() for part in raw.split(",") if part.strip())
 
 
+# Credential headers seen across public GraphQL APIs: bearer/basic auth,
+# generic API keys, and the vendor-specific ones users have actually hit the
+# Bridge with (Radio France's x-token, Hasura's admin secret, Shopify's
+# access token). Cookies cover session-authenticated APIs.
+DEFAULT_FORWARD_HEADERS = ",".join([
+    "authorization",
+    "x-api-key",
+    "api-key",
+    "apikey",
+    "x-token",
+    "x-auth-token",
+    "x-access-token",
+    "x-hasura-admin-secret",
+    "x-shopify-access-token",
+    "cookie",
+])
+
+
 @dataclass(frozen=True)
 class Settings:
     # Instance cache
@@ -38,13 +56,15 @@ class Settings:
     rate_limit: str = field(default_factory=lambda: os.environ.get("BRIDGE_RATE_LIMIT", "60/minute"))
 
     # Header forwarding: the MCP client's headers are forwarded to the
-    # upstream after a safe allowlist is applied. We forward authentication-
-    # style headers by default; everything else is stripped.
-    # Users can broaden to "*" via BRIDGE_FORWARD_HEADERS="*".
+    # upstream after a safe allowlist is applied. We forward the credential
+    # headers GraphQL APIs commonly expect by default; everything else is
+    # stripped. Users can broaden to "*" via BRIDGE_FORWARD_HEADERS="*",
+    # but note the forwarded headers also feed the per-credential cache key,
+    # so "*" makes every distinct client header set its own cache entry.
     forward_headers: Tuple[str, ...] | str = field(
         default_factory=lambda: (
             os.environ.get("BRIDGE_FORWARD_HEADERS", "")
-            or "authorization,x-api-key,cookie"
+            or DEFAULT_FORWARD_HEADERS
         )
     )
 

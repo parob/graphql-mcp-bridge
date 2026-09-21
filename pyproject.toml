@@ -9,7 +9,8 @@ authors = [
     {name = "Robert Parker", email = "rob@parob.com"}
 ]
 dependencies = [
-    "graphql-mcp>=2.2.0",
+    "graphql-mcp>=2.3.0",
+    "fastmcp>=4,<5",  # mcp 2: protocol 2026-07-28, which Claude clients probe with
     "starlette>=0.37",
     "uvicorn[standard]>=0.30",
     "cachetools>=5.3",
