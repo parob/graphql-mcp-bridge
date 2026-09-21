@@ -69,3 +69,11 @@ def test_empty_returns_empty():
 def test_base64url_roundtrip(url):
     encoded = base64.urlsafe_b64encode(url.encode()).decode().rstrip("=")
     assert decode_upstream(encoded) == url
+
+
+def test_strips_whitespace_from_decoded_url():
+    # `echo url | base64` (without -n) bakes a trailing newline into the
+    # token; real users have shipped exactly that.
+    encoded = base64.urlsafe_b64encode((URL + "\n").encode()).decode()
+    assert decode_upstream(encoded) == URL
+    assert decode_upstream(quote(URL + "\n", safe="")) == URL

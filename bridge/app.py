@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import contextlib
 import html
 import json
 import logging
+import sys
 import time
 from typing import Awaitable, Callable
 from urllib.parse import unquote, urlparse
 
+from graphql_mcp.server import select_forward_headers
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import (
@@ -29,6 +32,34 @@ from bridge.rate_limit import TokenBucketLimiter
 from bridge.ssrf import UpstreamValidationError, validate_upstream_url
 
 logger = logging.getLogger(__name__)
+# One JSON line per proxied request (see _access_log). Its own logger and
+# handler so the line reaches stderr verbatim: Cloud Logging then parses it
+# into a structured entry instead of a text payload.
+access_logger = logging.getLogger("bridge.access")
+
+
+def configure_logging() -> None:
+    """Send the bridge's own INFO logs to stderr.
+
+    Python's root logger only prints WARNING and above until someone
+    configures it, which silently dropped every access-log and
+    "building instance" line in production.
+    """
+    root = logging.getLogger()
+    if not root.handlers:
+        logging.basicConfig(
+            level=logging.INFO, stream=sys.stderr,
+            format="%(levelname)s:%(name)s:%(message)s")
+    if not access_logger.handlers:
+        handler = logging.StreamHandler(sys.stderr)
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        access_logger.addHandler(handler)
+        access_logger.propagate = False
+    access_logger.setLevel(logging.INFO)
+    # The MCP SDK logs two INFO lines per request ("Processing request",
+    # "Terminating session"); the access line above already covers that.
+    logging.getLogger("mcp").setLevel(logging.WARNING)
+
 
 # Human-facing docs for the Bridge, linked from the landing page and the JSON
 # service-info response. This is the canonical GitHub Pages docs domain —
@@ -166,7 +197,9 @@ def _access_log(
 ) -> None:
     """Emit one structured line per proxied request so usage is queryable
     (e.g. in Cloud Logging): which upstreams, how often, latency, hit/miss."""
-    logger.info(json.dumps({
+    access_logger.info(json.dumps({
+        "severity": "INFO",
+        "message": "bridge_request",
         "event": "bridge_request",
         "upstream": urlparse(upstream).hostname or upstream,
         "kind": kind,
@@ -180,6 +213,7 @@ def _access_log(
 
 def create_app(settings: Settings | None = None) -> Starlette:
     settings = settings or load_settings()
+    configure_logging()
     proxy = Proxy(settings)
     limiter = TokenBucketLimiter(settings.rate_limit)
 
@@ -261,9 +295,15 @@ def create_app(settings: Settings | None = None) -> Starlette:
                 {"error": f"invalid upstream: {e}"},
                 status_code=400)(scope, receive, send)
 
-        cache_hit = proxy.cache.peek(normalize_upstream_url(upstream)) is not None
+        # The caller's allowlisted headers (Authorization, X-API-Key, ...)
+        # also unlock schema introspection on upstreams that require auth,
+        # and select the cache entry built with those credentials.
+        forwarded = select_forward_headers(
+            request.headers, proxy.forward_headers)
+        cache_hit = proxy.cache.peek(
+            proxy.cache_key(upstream, forwarded)) is not None
         try:
-            built = await proxy.get(upstream)
+            built = await proxy.get(upstream, forwarded)
         except Exception as e:
             logger.warning(
                 "bridge: failed to build instance for %s: %s", upstream, e)
@@ -337,10 +377,23 @@ def create_app(settings: Settings | None = None) -> Starlette:
         url = (data or {}).get("url")
         if not url:
             return JSONResponse({"error": "missing url"}, status_code=400)
-        removed = proxy.cache.invalidate(normalize_upstream_url(url))
-        return JSONResponse({"invalidated": removed})
+        removed = await proxy.cache.invalidate_upstream(
+            normalize_upstream_url(url))
+        return JSONResponse({"invalidated": removed > 0, "entries": removed})
+
+    @contextlib.asynccontextmanager
+    async def lifespan(_app: Starlette):
+        try:
+            yield
+        finally:
+            # Exit every cached instance's session manager from a task that
+            # is still alive, instead of leaving the async generators to be
+            # finalized by the interpreter (which logged cross-task cancel
+            # scope errors on every SIGTERM).
+            await proxy.close_all()
 
     app = Starlette(
+        lifespan=lifespan,
         routes=[
             Route("/", root, methods=["GET"]),
             Route("/health", health, methods=["GET"]),

@@ -88,8 +88,16 @@ def _make_upstream_app(schema: GraphQLSchema) -> Starlette:
         payload["data"] = result.data
         return JSONResponse(payload)
 
+    async def graphql_auth_endpoint(request: Request):
+        # An upstream that refuses everything, introspection included,
+        # without an Authorization header — like GitHub or an API gateway.
+        if not request.headers.get("authorization"):
+            return JSONResponse({"message": "Unauthorized"}, status_code=401)
+        return await graphql_endpoint(request)
+
     return Starlette(routes=[
         Route("/graphql", graphql_endpoint, methods=["POST"]),
+        Route("/graphql-auth", graphql_auth_endpoint, methods=["POST"]),
     ])
 
 
@@ -127,3 +135,9 @@ def upstream_graphql():
     finally:
         server.should_exit = True
         thread.join(timeout=5)
+
+
+@pytest.fixture(scope="session")
+def upstream_graphql_auth(upstream_graphql):
+    """Same upstream, on a path that requires Authorization for everything."""
+    return upstream_graphql.replace("/graphql", "/graphql-auth")

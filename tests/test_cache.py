@@ -83,9 +83,84 @@ async def test_invalidate_forces_rebuild():
     await cache.get_or_build("k1", build)
     assert calls == 1
 
-    assert cache.invalidate("k1") is True
+    assert await cache.invalidate("k1") is True
     await cache.get_or_build("k1", build)
     assert calls == 2
 
-    assert cache.invalidate("k1") is True
-    assert cache.invalidate("k1") is False
+    assert await cache.invalidate("k1") is True
+    assert await cache.invalidate("k1") is False
+
+
+def test_instance_cache_key_separates_credentials():
+    from bridge.cache import instance_cache_key
+
+    url = "https://Example.com/graphql/"
+    plain = instance_cache_key(url, None)
+    assert plain == "https://example.com/graphql"
+    assert instance_cache_key(url, {}) == plain
+
+    a = instance_cache_key(url, {"authorization": "Bearer a"})
+    b = instance_cache_key(url, {"authorization": "Bearer b"})
+    assert a != b and a != plain
+    assert a.startswith(plain + "#")
+    # Header name case and ordering do not change the key; values do.
+    assert instance_cache_key(url, {"Authorization": "Bearer a"}) == a
+    assert instance_cache_key(
+        url, {"x-api-key": "k", "authorization": "Bearer a"}) == instance_cache_key(
+        url, {"authorization": "Bearer a", "X-API-KEY": "k"})
+    # The token itself is not in the key.
+    assert "Bearer" not in a
+
+
+@pytest.mark.asyncio
+async def test_evicted_instances_are_released():
+    released = []
+
+    async def on_evict(value):
+        released.append(value)
+
+    cache: InstanceCache[str] = InstanceCache(
+        maxsize=1, ttl_seconds=60, on_evict=on_evict)
+
+    async def build_a():
+        return "a"
+
+    async def build_b():
+        return "b"
+
+    await cache.get_or_build("a", build_a)
+    await cache.get_or_build("b", build_b)  # maxsize=1 pushes "a" out
+    assert released == ["a"]
+
+    assert await cache.invalidate("b") is True
+    assert released == ["a", "b"]
+
+    await cache.get_or_build("c", build_a)
+    await cache.close_all()
+    assert released == ["a", "b", "a"]
+    assert len(cache) == 0
+
+
+@pytest.mark.asyncio
+async def test_invalidate_upstream_drops_every_credential_variant():
+    from bridge.cache import instance_cache_key
+
+    released = []
+
+    async def on_evict(value):
+        released.append(value)
+
+    cache: InstanceCache[str] = InstanceCache(
+        maxsize=10, ttl_seconds=60, on_evict=on_evict)
+    url = "https://example.com/graphql"
+
+    async def build():
+        return "x"
+
+    await cache.get_or_build(instance_cache_key(url, None), build)
+    await cache.get_or_build(instance_cache_key(url, {"authorization": "a"}), build)
+    await cache.get_or_build(instance_cache_key("https://example.com/other", None), build)
+
+    assert await cache.invalidate_upstream(url) == 2
+    assert len(cache) == 1
+    assert len(released) == 2
