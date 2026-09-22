@@ -193,10 +193,14 @@ def _explorer_page(target: str, mcp_url: str, host: str) -> HTMLResponse:
 
 def _access_log(
     request: Request, upstream: str, kind: str, status: int,
-    started: float, cache_hit: bool,
+    started: float, cache_hit: bool, forwarded: dict[str, str],
 ) -> None:
     """Emit one structured line per proxied request so usage is queryable
-    (e.g. in Cloud Logging): which upstreams, how often, latency, hit/miss."""
+    (e.g. in Cloud Logging): which upstreams, how often, latency, hit/miss.
+
+    ``credentials`` lists the names of the forwarded headers, never their
+    values, so an upstream 401 shows whether the caller sent anything.
+    """
     access_logger.info(json.dumps({
         "severity": "INFO",
         "message": "bridge_request",
@@ -207,6 +211,7 @@ def _access_log(
         "status": status,
         "duration_ms": round((time.monotonic() - started) * 1000, 1),
         "cache": "hit" if cache_hit else "miss",
+        "credentials": sorted(forwarded),
         "client_ip": _client_ip(request),
     }))
 
@@ -307,7 +312,8 @@ def create_app(settings: Settings | None = None) -> Starlette:
         except Exception as e:
             logger.warning(
                 "bridge: failed to build instance for %s: %s", upstream, e)
-            _access_log(request, upstream, kind, 502, started, cache_hit)
+            _access_log(
+                request, upstream, kind, 502, started, cache_hit, forwarded)
             return await JSONResponse(
                 {"error": f"failed to introspect upstream: {e}"},
                 status_code=502)(scope, receive, send)
@@ -364,7 +370,8 @@ def create_app(settings: Settings | None = None) -> Starlette:
 
         await built.sub_app(sub_scope, receive, _send)
         _access_log(
-            request, upstream, kind, st["status"], started, cache_hit)
+            request, upstream, kind, st["status"], started, cache_hit,
+            forwarded)
 
     async def invalidate(request: Request) -> Response:
         secret = settings.admin_secret

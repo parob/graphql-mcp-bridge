@@ -237,3 +237,27 @@ async def test_introspection_uses_callers_credentials(
         )
     assert resp.status_code == 502
     assert "401" in resp.json()["error"]
+
+
+@pytest.mark.asyncio
+async def test_access_log_names_forwarded_credentials_without_values(
+    upstream_graphql, bridge_server, caplog,
+):
+    import json
+    import logging
+
+    mcp_url = f"{bridge_server}/mcp/{quote(upstream_graphql, safe='')}"
+    access = logging.getLogger("bridge.access")
+    records = []
+    handler = logging.Handler()
+    handler.emit = records.append
+    access.addHandler(handler)
+    try:
+        async with Client(mcp_url, auth="secret-token") as client:
+            await client.call_tool("whoami", {})
+    finally:
+        access.removeHandler(handler)
+
+    lines = [json.loads(r.getMessage()) for r in records]
+    assert lines and all(line["credentials"] == ["authorization"] for line in lines)
+    assert not any("secret-token" in r.getMessage() for r in records)

@@ -572,7 +572,7 @@ wheels = [
 
 [[package]]
 name = "graphql-mcp"
-version = "2.3.0"
+version = "2.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiohttp" },
@@ -581,9 +581,9 @@ dependencies = [
     { name = "graphql-core" },
     { name = "graphql-http" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/fa/bc/07f9ffddbfe057af5287253e66bafa96acad809c859277571556ef1f0b1c/graphql_mcp-2.3.0.tar.gz", hash = "sha256:4d7c824f63a73cd46d91795c97b02028f5c761e6ce58730545b7b8444731a098", size = 546767 }
+sdist = { url = "https://files.pythonhosted.org/packages/25/53/6834b55de07ef9cffb55a647beae4abad8d300b206793383d401ae1e89b2/graphql_mcp-2.3.1.tar.gz", hash = "sha256:9f9542095162cf3783b611ff9af9ad725a7f7d9ef8a59743631a0df2a6e389bb", size = 547215 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/22/2b/1d540dddc15c7c7e7eeaf0f8236765c6d4da76a44529c51ac03681dfc70f/graphql_mcp-2.3.0-py3-none-any.whl", hash = "sha256:4a2acbd805338fe34e8d6e7e88b1cf9790086c01996f7cb9311f072fe6f77778", size = 54319 },
+    { url = "https://files.pythonhosted.org/packages/dc/de/4840da2a43cfd0670b2f3a8e45b11caa3749c02fdd1e1011f79e4532fcd8/graphql_mcp-2.3.1-py3-none-any.whl", hash = "sha256:32814970e6b49170fcbe92a7cc7a4a92a0ea277157b3552158d13692d047a065", size = 54531 },
 ]
 
 [[package]]
@@ -610,7 +610,7 @@ dev = [
 requires-dist = [
     { name = "cachetools", specifier = ">=5.3" },
     { name = "fastmcp", specifier = ">=4,<5" },
-    { name = "graphql-mcp", specifier = ">=2.3.0" },
+    { name = "graphql-mcp", specifier = ">=2.3.1" },
     { name = "starlette", specifier = ">=0.37" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
 ]
